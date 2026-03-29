@@ -67,7 +67,7 @@ AlphaScope cross-validates two independent signal sources to surface high-convic
 ## Project structure
 
 ```
-alphascope-v2/
+alphascope/
 ├── netlify.toml                    # Build config + URL redirects
 ├── package.json                    # Dependencies
 ├── .env.example                    # Environment variable template
@@ -79,9 +79,10 @@ alphascope-v2/
 │   ├── stocks.js                   # Yahoo Finance data fetcher + search
 │   ├── analysis.js                 # Chart patterns + AI brief generator
 │   ├── signals.js                  # Full scan engine (cached 30 min)
-│   └── market.js                   # Gold, Silver, Indices, VIX, Crypto
+│   ├── market.js                   # Gold, Silver, Indices, VIX, Crypto
+│   └── bookmarks.js                # Watchlist 
 │
-├── public/
+└── public/
     ├── index.html                  # Login / Register
     ├── css/main.css                # Design system — dark/light mode
     ├── js/app.js                   # Auth, API, Theme, Toast, Charts
