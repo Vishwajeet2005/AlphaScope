@@ -1,0 +1,12 @@
+{
+  "name": "alphascope",
+  "version": "3.0.0",
+  "description": "NSE Intelligence Terminal",
+  "scripts": {
+    "dev": "netlify dev"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

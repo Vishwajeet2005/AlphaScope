@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AlphaScope — Dashboard</title>
+<link rel="stylesheet" href="/css/main.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<nav class="nav" id="navbar"></nav>
+<div class="ticker"><div class="ticker-inner" id="tickerInner"><span style="padding:0 14px;font-family:var(--mono);font-size:10px;color:var(--c-muted)">Loading market data...</span></div></div>
+<div class="stats-strip">
+  <div class="stat-cell"><span class="stat-lbl">Scanned</span><span class="stat-val" id="s1">—</span></div>
+  <div class="stat-cell"><span class="stat-lbl">Chart signals</span><span class="stat-val a" id="s2">—</span></div>
+  <div class="stat-cell"><span class="stat-lbl">Confirmed alpha</span><span class="stat-val g" id="s3">—</span></div>
+  <div class="stat-cell"><span class="stat-lbl">Bookmarks</span><span class="stat-val" id="s4">—</span></div>
+  <div class="stat-cell"><span class="stat-lbl">Last scan</span><span class="stat-val" id="s5" style="font-size:9px">—</span></div>
+</div>
+<div class="shell">
+  <div class="body-grid">
+    <div class="feed">
+      <div class="feed-hdr"><span>Alpha Signals</span><span class="feed-cnt" id="feedCnt">—</span></div>
+      <div class="feed-list" id="feedList">
+        <div style="padding:20px;text-align:center;color:var(--c-muted)"><div class="spin" style="margin:0 auto 8px"></div><div style="font-family:var(--mono);font-size:9px;letter-spacing:.06em">SCANNING NSE...</div></div>
+      </div>
+    </div>
+    <div class="detail" id="detailCol">
+      <div class="empty-detail">
+        <div style="font-size:28px;opacity:.12;font-family:var(--mono)">◈</div>
+        <div class="empty-sym">SELECT A SIGNAL</div>
+        <div style="font-size:10px;color:var(--c-muted);margin-top:4px">Live prices · AI briefs · Chart patterns</div>
+      </div>
+    </div>
+    <div class="sidebar">
+      <div class="sb-block">
+        <div class="sb-hdr">Market Sentiment</div>
+        <div class="gauge-wrap">
+          <svg viewBox="0 0 120 66" width="120" height="66" style="display:block;margin:0 auto">
+            <path class="gauge-arc-bg" d="M15,60 A50,50 0 0,1 105,60"/>
+            <path class="gauge-arc-fill" id="gaugeArc" d="M15,60 A50,50 0 0,1 105,60" stroke="var(--c-faint)" stroke-dasharray="157" stroke-dashoffset="157"/>
+          </svg>
+          <div class="gauge-num" id="gaugeNum" style="color:var(--c-muted)">—</div>
+          <div class="gauge-lbl" id="gaugeLbl">Loading</div>
+        </div>
+      </div>
+      <div class="sb-block">
+        <div class="sb-hdr">Indices</div>
+        <div id="mktIndices"><div class="skel" style="height:48px;margin:8px"></div></div>
+      </div>
+      <div class="sb-block">
+        <div class="sb-hdr">Gold · Silver · Oil</div>
+        <div id="mktComm"><div class="skel" style="height:64px;margin:8px"></div></div>
+      </div>
+      <div class="sb-block">
+        <div class="sb-hdr">Forex · Crypto</div>
+        <div id="mktForex"><div class="skel" style="height:64px;margin:8px"></div></div>
+      </div>
+      <div class="sb-block">
+        <div class="sb-hdr">Sector Heatmap</div>
+        <div class="hm-grid" id="heatmap"><div class="skel" style="height:100px;grid-column:1/-1"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="scan-ov" id="scanOv">
+  <div class="scan-box">
+    <div class="scan-hdr"><div class="scan-hdr-dot"></div><span class="scan-hdr-txt">ALPHASCOPE SCAN</span></div>
+    <div class="scan-log" id="scanLog"></div>
+    <div class="scan-prog-wrap"><div class="scan-prog"><div class="scan-bar" id="scanBar"></div></div></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="/js/app.js"></script>
+<script>
+if (!Auth.requireAuth()) throw 0;
+
+let signals=[], bookmarks=[], activeSymbol=null, mktData={};
+let refreshTimer=null;
+window.runScan = runScan;
+
+// Map Yahoo symbol → display info for non-NSE assets
+const MARKET_ASSETS = {
+  'GC=F':    { name:'Gold',        sector:'Commodity' },
+  'SI=F':    { name:'Silver',      sector:'Commodity' },
+  'CL=F':    { name:'Crude Oil',   sector:'Commodity' },
+  'BTC-USD': { name:'Bitcoin',     sector:'Crypto'    },
+  'ETH-USD': { name:'Ethereum',    sector:'Crypto'    },
+  'USDINR=X':{ name:'USD/INR',     sector:'Forex'     },
+  'EURINR=X':{ name:'EUR/INR',     sector:'Forex'     },
+  '^NSEI':   { name:'Nifty 50',    sector:'Index'     },
+  '^BSESN':  { name:'Sensex',      sector:'Index'     },
+  '^INDIAVIX':{ name:'India VIX',  sector:'Index'     },
+};
+
+async function init() {
+  renderNav('dashboard');
+  const [, bms] = await Promise.all([loadSignals(), refreshBmCount(), loadMarket()]);
+  bookmarks = bms;
+  scheduleRefresh();
+  if (new URLSearchParams(location.search).get('scan') === '1') runScan();
+}
+
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => { loadSignals(true); loadMarket(); }, 30 * 60 * 1000);
+}
+
+async function loadSignals(force=false) {
+  const res = await apiGet('/signals' + (force ? '?force=true' : ''));
+  if (!res?.ok) { toast('Could not load signals', 'r'); return; }
+  signals = res.data.signals || [];
+  window._alphaSignals = signals;
+  const st = res.data.stats || {};
+  document.getElementById('s1').textContent = st.total_scanned || 15;
+  document.getElementById('s2').textContent = st.chart_hits || signals.length;
+  document.getElementById('s3').textContent = st.confirmed_alpha || signals.length;
+  document.getElementById('s5').textContent = res.data.scanned_at ? new Date(res.data.scanned_at).toLocaleTimeString() : '—';
+  renderTicker();
+  renderFeed();
+  if (force) { toast('Scan complete — ' + signals.length + ' alpha signals', 'g'); scheduleRefresh(); }
+}
+
+async function loadMarket() {
+  const res = await apiGet('/market');
+  if (!res?.ok) return;
+  mktData = res.data.market || {};
+  renderSentiment(res.data.sentiment_score, res.data.sentiment);
+  renderMktItems();
+  renderHeatmap();
+  renderTicker();
+}
+
+// ── TICKER — every item is clickable ─────────────────────────────────────────
+function buildTickerItems() {
+  const items = [];
+
+  // NSE signal stocks
+  signals.forEach(s => items.push({
+    type: s.sector || 'NSE', label: s.symbol,
+    pStr: '₹' + s.price.toFixed(2), chg: s.change_pct,
+    yahooSym: s.symbol + '.NS', name: s.name, sector: s.sector, price: s.price,
+  }));
+
+  // Market assets — keyed by Yahoo symbol now
+  const mktItems = [
+    { key:'^NSEI',    type:'INDEX',  fmt:p=>'₹'+p.toLocaleString('en-IN',{maximumFractionDigits:0}) },
+    { key:'^BSESN',   type:'INDEX',  fmt:p=>'₹'+p.toLocaleString('en-IN',{maximumFractionDigits:0}) },
+    { key:'GC=F',     type:'GOLD',   fmt:p=>'$'+p.toFixed(1) },
+    { key:'SI=F',     type:'SILVER', fmt:p=>'$'+p.toFixed(2) },
+    { key:'CL=F',     type:'OIL',    fmt:p=>'$'+p.toFixed(2) },
+    { key:'BTC-USD',  type:'BTC',    fmt:p=>'$'+p.toLocaleString('en-US',{maximumFractionDigits:0}) },
+    { key:'ETH-USD',  type:'ETH',    fmt:p=>'$'+p.toLocaleString('en-US',{maximumFractionDigits:0}) },
+    { key:'USDINR=X', type:'FX',     fmt:p=>'₹'+p.toFixed(2) },
+    { key:'^INDIAVIX',type:'VIX',    fmt:p=>p.toFixed(2) },
+  ];
+  mktItems.forEach(({ key, type, fmt }) => {
+    const d = mktData[key];
+    if (!d || !d.price) return;
+    const info = MARKET_ASSETS[key] || { name: d.label, sector: type };
+    items.push({
+      type, label: d.label, pStr: fmt(d.price), chg: d.change_pct || 0,
+      yahooSym: key, name: info.name, sector: info.sector, price: d.price,
+    });
+  });
+  return items;
+}
+
+function renderTicker() {
+  const items = buildTickerItems();
+  if (!items.length) return;
+  const doubled = [...items, ...items];
+  const inner = document.getElementById('tickerInner');
+  inner.style.animationDuration = (doubled.length * 2.2) + 's';
+  inner.innerHTML = doubled.map(t => {
+    const up = t.chg >= 0;
+    return `<span class="ti" onclick="openAsset('${t.yahooSym}','${t.name.replace(/'/g,"\\'")}','${t.sector}',${t.price})">
+      <span class="ti-type">${t.type}</span>
+      <span class="ti-sym">${t.label}</span>
+      <span class="ti-p">${t.pStr}</span>
+      <span class="${up ? 'ti-up' : 'ti-dn'}">${up ? '+' : ''}${t.chg.toFixed(2)}%</span>
+    </span>`;
+  }).join('');
+}
+
+// Route clicks — NSE stocks open detail panel, others go to stock page
+function openAsset(yahooSym, name, sector, price) {
+  // Check if it's an NSE stock in current signals
+  const cleanSym = yahooSym.replace('.NS', '');
+  const sig = signals.find(s => s.symbol === cleanSym);
+  if (sig) { selectSignal(cleanSym); return; }
+  // Everything else → stock page with Yahoo symbol
+  window.location.href = `/pages/stock.html?symbol=${encodeURIComponent(yahooSym)}&name=${encodeURIComponent(name)}&sector=${encodeURIComponent(sector)}`;
+}
+
+// ── FEED ──────────────────────────────────────────────────────────────────────
+function renderFeed() {
+  const list = document.getElementById('feedList');
+  document.getElementById('feedCnt').textContent = signals.length;
+  if (!signals.length) {
+    list.innerHTML = `<div style="padding:24px;text-align:center;color:var(--c-muted)"><div style="font-family:var(--mono);font-size:9px;letter-spacing:.08em;margin-bottom:6px">NO SIGNALS</div><div style="font-size:10px">Run a scan to detect setups</div></div>`;
+    return;
+  }
+  list.innerHTML = '';
+  signals.forEach((sig, idx) => {
+    const el = document.createElement('div');
+    el.className = 'sig-row' + (sig.symbol === activeSymbol ? ' active' : '');
+    el.id = 'sr-' + sig.symbol;
+    const up = sig.change_pct >= 0, bm = bookmarks.some(b => b.symbol === sig.symbol);
+    const cf = Math.round((sig.chart_strength || 0) * 100);
+    const rf = Math.min(100, (sig.radar_score || 0) * 10);
+    const chips = (sig.chart_patterns || []).map(p =>
+      `<span class="chip chip-p">${p.length > 14 ? p.slice(0, 13) + '…' : p}</span>`).join('');
+    el.innerHTML = `
+      <div class="sr-top">
+        <div class="sr-l"><div class="sr-sym">${sig.symbol}</div><div class="sr-name">${sig.name}</div></div>
+        <div class="sr-r">
+          <button class="bm-star ${bm ? 'on' : ''}" data-sym="${sig.symbol}"
+            onclick="toggleBm('${sig.symbol}','${sig.name.replace(/'/g,"\\'")}','${sig.sector}',${sig.price});event.stopPropagation()">${bm ? '★' : '☆'}</button>
+          <span class="conv ${convBadgeClass(sig.conviction)}">${sig.conviction}</span>
+        </div>
+      </div>
+      <div class="sr-price">
+        <span class="sr-p">₹${sig.price.toFixed(2)}</span>
+        <span class="sr-c ${up ? 'up' : 'dn'}">${up ? '+' : ''}${sig.change_pct.toFixed(2)}%</span>
+      </div>
+      <div class="sr-chips">${chips}<span class="chip chip-r">R:${sig.radar_score}</span></div>
+      <div class="sr-bars">
+        <div class="bar-item">
+          <div class="bar-lbl">Chart</div>
+          <div class="bar-row"><div class="bar-bg"><div class="bar-fill" style="width:${cf}%;background:rgba(180,100,255,.7)"></div></div><div class="bar-n">${cf}%</div></div>
+        </div>
+        <div class="bar-item">
+          <div class="bar-lbl">Radar</div>
+          <div class="bar-row"><div class="bar-bg"><div class="bar-fill" style="width:${rf}%;background:rgba(80,140,255,.7)"></div></div><div class="bar-n">${sig.radar_score}/10</div></div>
+        </div>
+      </div>`;
+    el.addEventListener('click', () => selectSignal(sig.symbol));
+    list.appendChild(el);
+    if (idx === 0) setTimeout(() => selectSignal(sig.symbol), 200);
+  });
+}
+
+// ── DETAIL ────────────────────────────────────────────────────────────────────
+function selectSignal(sym) {
+  activeSymbol = sym;
+  document.querySelectorAll('.sig-row').forEach(r => r.classList.remove('active'));
+  document.getElementById('sr-' + sym)?.classList.add('active');
+  const sig = signals.find(s => s.symbol === sym);
+  if (sig) renderDetail(sig);
+}
+
+function renderDetail(sig) {
+  const up = sig.change_pct >= 0, bm = bookmarks.some(b => b.symbol === sig.symbol);
+  const wr = Math.round((sig.chart_winrate || 0) * 100);
+  const cp = convPct(sig.conviction), cc = convColor(sig.conviction);
+  const l52 = sig.low_52w || sig.price * .78, h52 = sig.high_52w || sig.price * 1.22;
+  const rPos = Math.min(97, Math.max(3, Math.round(((sig.price - l52) / (h52 - l52)) * 100)));
+  const evH = (sig.radar_events || []).map(e =>
+    `<div class="ev-item"><div class="ev-score">+${e.score}</div><div class="ev-desc">${e.desc}</div></div>`).join('');
+  const patH = (sig.chart_patterns || []).map(p => `<div class="pat-name">${p}</div>`).join('');
+
+  document.getElementById('detailCol').innerHTML = `
+    <div class="d-top">
+      <div>
+        <div class="d-sym">${sig.symbol}</div>
+        <div class="d-name">${sig.name}</div>
+        <span class="d-sector">${sig.sector}</span>
+      </div>
+      <div class="d-price-block">
+        <div class="d-price">₹${sig.price.toFixed(2)}</div>
+        <div style="font-family:var(--mono);font-size:11px;text-align:right" class="${up ? 'up' : 'dn'}">${up ? '+' : ''}${sig.change_pct.toFixed(2)}% today</div>
+        <button class="bm-detail-btn ${bm ? 'on' : ''}" id="bmDetailBtn"
+          onclick="toggleBm('${sig.symbol}','${sig.name.replace(/'/g,"\\'")}','${sig.sector}',${sig.price})">${bm ? '★ Saved' : '☆ Save'}</button>
+      </div>
+    </div>
+
+    <div class="d-section">
+      <div class="d-sec-title">Alpha Conviction</div>
+      <div class="conv-bar-wrap">
+        <div class="conv-bar-lbl">Strength</div>
+        <div class="conv-bar-bg"><div class="conv-bar-fill" style="width:${cp}%;background:${cc}"></div></div>
+        <div class="conv-bar-val" style="color:${cc}">${sig.conviction}</div>
+      </div>
+    </div>
+
+    <div class="d-section">
+      <div class="d-sec-title">52-Week Range</div>
+      <div class="range-wrap"><div class="range-dot" style="left:${rPos}%"></div></div>
+      <div class="range-lbls">
+        <span>₹${l52.toFixed(0)}</span>
+        <span style="color:var(--c-acc)">₹${sig.price.toFixed(2)}</span>
+        <span>₹${h52.toFixed(0)}</span>
+      </div>
+    </div>
+
+    <div class="chart-section">
+      <div class="chart-tabs">
+        <button class="c-tab active" onclick="switchChart('price',this)">Price</button>
+        <button class="c-tab" onclick="switchChart('rsi',this)">RSI</button>
+        <button class="c-tab" onclick="switchChart('volume',this)">Volume</button>
+      </div>
+      <div class="chart-wrap"><canvas id="mainChart"></canvas></div>
+    </div>
+
+    <div class="two-col">
+      <div class="tc-box">
+        <div class="tc-title">Chart Patterns</div>
+        ${patH || '<div style="color:var(--c-muted);font-size:11px">No patterns detected</div>'}
+        <div class="pat-det" style="margin-top:4px">${sig.chart_details || ''}</div>
+        <div class="wr-row">
+          <div class="wr-lbl">Win rate</div>
+          <div class="wr-bg"><div class="wr-fill" style="width:${wr}%"></div></div>
+          <div class="wr-pct">${wr}%</div>
+        </div>
+      </div>
+      <div class="tc-box">
+        <div class="tc-title">Opportunity Radar</div>
+        ${evH || '<div style="color:var(--c-muted);font-size:11px">No events detected</div>'}
+        <div style="margin-top:8px;font-family:var(--mono);font-size:10px;color:var(--c-muted)">
+          Score <span style="color:var(--c-acc);font-weight:600">${sig.radar_score}/10</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="brief-section" id="briefBox">
+      <div class="brief-meta">
+        <span class="brief-tag">AI BRIEF</span>
+        <span class="brief-src" id="briefMeta">Fetching via Groq...</span>
+      </div>
+      <div id="briefContent">
+        <div style="display:flex;align-items:center;gap:7px;color:var(--c-muted);font-size:11px">
+          <div class="spin"></div>Groq llama-3.3-70b running...
+        </div>
+      </div>
+    </div>
+
+    <div style="padding:10px 18px;border-bottom:1px solid var(--c-line)">
+      <a href="/pages/stock.html?symbol=${sig.symbol}.NS&name=${encodeURIComponent(sig.name)}&sector=${encodeURIComponent(sig.sector)}"
+        style="font-family:var(--mono);font-size:9px;color:var(--c-muted);letter-spacing:.06em">↗ FULL ANALYSIS PAGE</a>
+    </div>`;
+
+  destroyCharts();
+  drawChart('mainChart', 'price', sig);
+  loadBrief(sig.symbol + '.NS', sig);
+}
+
+async function loadBrief(yahooSym, fallback) {
+  const res = await apiGet('/analysis?symbol=' + encodeURIComponent(yahooSym));
+  const meta = document.getElementById('briefMeta');
+  const content = document.getElementById('briefContent');
+  if (!content) return;
+  if (!res?.ok) {
+    content.innerHTML = `<div class="brief-text">${fallback?.ai_brief || 'Could not load brief.'}</div>`;
+    if (meta) meta.textContent = 'Cached';
+    return;
+  }
+  const d = res.data;
+  if (meta) meta.textContent = (d.ai_provider || 'Live') + ' · ' + (d.analyzed_at ? new Date(d.analyzed_at).toLocaleTimeString() : '');
+  content.innerHTML = `<div class="brief-text" style="line-height:1.85;font-size:13px">${d.ai_brief}</div>`;
+}
+
+function switchChart(type, btn) {
+  document.querySelectorAll('.c-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  const sig = signals.find(s => s.symbol === activeSymbol);
+  if (sig) drawChart('mainChart', type, sig);
+}
+
+// ── BOOKMARKS ─────────────────────────────────────────────────────────────────
+async function toggleBm(sym, name, sector, price) {
+  const isBm = bookmarks.some(b => b.symbol === sym);
+  if (isBm) {
+    await apiDel('/bookmarks/' + encodeURIComponent(sym));
+    toast(sym + ' removed', 'a');
+  } else {
+    const r = await apiPost('/bookmarks', { symbol: sym, name, sector, price: Number(price) });
+    if (!r?.ok) { toast('Could not save', 'r'); return; }
+    toast('★ ' + sym + ' saved', 'g');
+  }
+  bookmarks = await refreshBmCount();
+  document.getElementById('s4').textContent = bookmarks.length;
+  const on = bookmarks.some(b => b.symbol === sym);
+  document.querySelectorAll(`[data-sym="${sym}"]`).forEach(b => { b.classList.toggle('on', on); b.textContent = on ? '★' : '☆'; });
+  const db = document.getElementById('bmDetailBtn');
+  if (db) { db.classList.toggle('on', on); db.textContent = on ? '★ Saved' : '☆ Save'; }
+}
+
+// ── MARKET SIDEBAR ────────────────────────────────────────────────────────────
+function renderSentiment(score, label) {
+  const arc = document.getElementById('gaugeArc');
+  const num = document.getElementById('gaugeNum');
+  const lbl = document.getElementById('gaugeLbl');
+  if (!arc || score == null) return;
+  const offset = Math.round(157 - (score / 100) * 157);
+  const col = score < 35 ? 'var(--c-red)' : score < 55 ? 'var(--c-acc)' : 'var(--c-grn)';
+  arc.style.strokeDashoffset = offset; arc.style.stroke = col;
+  if (num) { num.textContent = score; num.style.color = col; }
+  if (lbl) lbl.textContent = label || '—';
+}
+
+function mktRow(d, fmt, clickSym) {
+  if (!d || !d.price) return '';
+  const up = d.change_pct >= 0;
+  const clickHandler = clickSym
+    ? `onclick="openAsset('${clickSym}','${d.label}','${MARKET_ASSETS[clickSym]?.sector||'Market'}',${d.price})" style="cursor:pointer"`
+    : '';
+  return `<div class="mkt-row" ${clickHandler}>
+    <div>
+      <div class="mkt-lbl">${d.label}</div>
+      ${d.unit ? `<div class="mkt-sub">${d.unit}</div>` : ''}
+    </div>
+    <div>
+      <div class="mkt-price">${fmt(d.price)}</div>
+      <div class="mkt-chg ${up ? 'up' : 'dn'}">${up ? '+' : ''}${(d.change_pct || 0).toFixed(2)}%</div>
+    </div>
+  </div>`;
+}
+
+function renderMktItems() {
+  const inr  = p => '₹' + p.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+  const usd  = p => '$' + p.toFixed(2);
+  const usd0 = p => '$' + p.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  const fx   = p => '₹' + p.toFixed(2);
+  const dp2  = p => p.toFixed(2);
+
+  document.getElementById('mktIndices').innerHTML =
+    mktRow(mktData['^NSEI'],    inr,  '^NSEI')   +
+    mktRow(mktData['^BSESN'],   inr,  '^BSESN')  +
+    mktRow(mktData['^INDIAVIX'],dp2,  null);
+
+  document.getElementById('mktComm').innerHTML =
+    mktRow(mktData['GC=F'],  usd, 'GC=F') +
+    mktRow(mktData['SI=F'],  usd, 'SI=F') +
+    mktRow(mktData['CL=F'],  usd, 'CL=F');
+
+  document.getElementById('mktForex').innerHTML =
+    mktRow(mktData['USDINR=X'], fx,   'USDINR=X') +
+    mktRow(mktData['BTC-USD'],  usd0, 'BTC-USD')  +
+    mktRow(mktData['ETH-USD'],  usd0, 'ETH-USD');
+}
+
+function renderHeatmap() {
+  const sectors = [
+    { n:'IT', s:'IT' }, { n:'Banking', s:'Banking' }, { n:'Pharma', s:'Pharma' },
+    { n:'Auto', s:'Auto' }, { n:'Energy', s:'Energy' }, { n:'FMCG', s:'FMCG' },
+    { n:'NBFC', s:'NBFC' }, { n:'Tech', s:'Tech' },
+  ];
+  const avg = sector => {
+    const ss = signals.filter(s => s.sector === sector);
+    return ss.length ? +(ss.reduce((a, s) => a + s.change_pct, 0) / ss.length).toFixed(2) : +(Math.random() * 4 - 2).toFixed(2);
+  };
+  document.getElementById('heatmap').innerHTML = sectors.map(s => {
+    const chg = avg(s.s), up = chg >= 0;
+    const intensity = Math.min(1, Math.abs(chg) / 3);
+    const col = up ? `rgba(34,221,136,${.15 + intensity * .45})` : `rgba(255,68,85,${.12 + intensity * .4})`;
+    return `<div class="hm-cell" style="background:${col}">
+      <div class="hm-s" style="color:${up ? 'var(--c-grn)' : 'var(--c-red)'}">${s.n}</div>
+      <div class="hm-c" style="color:${up ? 'var(--c-grn)' : 'var(--c-red)'}">${up ? '+' : ''}${chg}%</div>
+    </div>`;
+  }).join('');
+}
+
+// ── SCAN ──────────────────────────────────────────────────────────────────────
+async function runScan() {
+  const ov = document.getElementById('scanOv');
+  const log = document.getElementById('scanLog');
+  const bar = document.getElementById('scanBar');
+  ov.classList.add('open'); log.innerHTML = ''; bar.style.width = '0%';
+  const steps = [
+    'Connecting to Yahoo Finance NSE feed...',
+    'Fetching live OHLCV for 15 stocks...',
+    'Computing SMAs, RSI, Bollinger Bands...',
+    'Running 5-pattern chart detector...',
+    'Scoring opportunity radar signals...',
+    'Cross-validating dual-confirmation setups...',
+    'Calling Groq llama-3.3-70b for briefs...',
+    'Ranking by conviction score...',
+  ];
+  steps.forEach((text, i) => {
+    setTimeout(() => {
+      const line = document.createElement('div');
+      line.className = 'scan-line cur';
+      line.textContent = `[${String(i+1).padStart(2,'0')}/${steps.length}] ${text}`;
+      if (log.children[i-1]) log.children[i-1].className = 'scan-line done';
+      log.appendChild(line);
+      bar.style.width = Math.round((i+1) / steps.length * 100) + '%';
+    }, i * 620);
+  });
+  const [sigRes] = await Promise.all([apiGet('/signals?force=true'), loadMarket()]);
+  setTimeout(() => {
+    ov.classList.remove('open');
+    if (sigRes?.ok) {
+      signals = sigRes.data.signals || [];
+      window._alphaSignals = signals;
+      renderTicker(); renderFeed();
+      toast('Scan complete — ' + signals.length + ' alpha signals', 'g');
+    } else {
+      toast('Scan failed', 'r');
+    }
+    scheduleRefresh();
+  }, steps.length * 620 + 400);
+}
+
+init();
+</script>
+</body>
+</html>

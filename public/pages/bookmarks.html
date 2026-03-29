@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AlphaScope — Watchlist</title>
+<link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<nav class="nav" id="navbar"></nav>
+<div style="max-width:960px;margin:0 auto;padding:22px">
+  <div class="bm-page-hdr">
+    <div>
+      <div class="bm-page-title">Watchlist</div>
+      <div class="bm-page-sub" id="bmSub">Loading...</div>
+    </div>
+    <a href="/pages/dashboard.html" class="btn-base">← DASHBOARD</a>
+  </div>
+  <div id="bmContent">
+    <div style="display:flex;align-items:center;gap:10px;padding:24px 0;color:var(--c-muted)">
+      <div class="spin"></div>
+      <div style="font-family:var(--mono);font-size:9px;letter-spacing:.06em">LOADING WATCHLIST...</div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="/js/app.js"></script>
+<script>
+if (!Auth.requireAuth()) throw 0;
+
+let bookmarks = [], alphaSyms = new Set(), alphaConvictions = {};
+
+async function init() {
+  renderNav('bookmarks');
+  // Load bookmarks and cached signals in parallel
+  // Use ?force=false (no fresh scan) — just return cached
+  const [bmRes, sigRes] = await Promise.all([
+    apiGet('/bookmarks'),
+    apiGet('/signals'),
+  ]);
+
+  bookmarks = bmRes?.ok ? (bmRes.data || []) : [];
+
+  if (sigRes?.ok) {
+    const sigs = sigRes.data.signals || [];
+    window._alphaSignals = sigs;
+    sigs.forEach(s => {
+      alphaSyms.add(s.symbol);
+      alphaConvictions[s.symbol] = s.conviction;
+    });
+  }
+
+  document.getElementById('bmSub').textContent =
+    `Your saved stocks · ${bookmarks.length} saved`;
+  await refreshBmCount();
+  render();
+}
+
+// Format price correctly per asset type
+function fmtPrice(price, sector) {
+  if (!price) return '—';
+  const isForeign = ['Commodity','Crypto','Forex','Index'].includes(sector);
+  const sym = isForeign ? '$' : '₹';
+  if (price > 10000) return sym + price.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (price > 100)   return sym + price.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  if (price > 1)     return sym + price.toFixed(4);
+  return sym + price.toFixed(6);
+}
+
+// Safe symbol for use in onclick attributes — encode to avoid breaking HTML
+function safeSym(sym) {
+  return encodeURIComponent(sym);
+}
+
+function render() {
+  const container = document.getElementById('bmContent');
+
+  if (!bookmarks.length) {
+    container.innerHTML = `
+      <div class="bm-empty">
+        <div class="bm-empty-sym">☆</div>
+        <div class="bm-empty-title">NO SAVED STOCKS</div>
+        <div style="font-size:11px;color:var(--c-muted);margin-top:6px;text-align:center;max-width:260px;line-height:1.6">
+          Search any NSE stock, commodity, or crypto and click ☆ to save it here.
+          Alpha signals are highlighted automatically.
+        </div>
+        <a href="/pages/dashboard.html" class="btn-base btn-acc" style="margin-top:14px">Go to Dashboard</a>
+      </div>`;
+    return;
+  }
+
+  const inAlpha = bookmarks.filter(b => alphaSyms.has(b.symbol));
+  const others  = bookmarks.filter(b => !alphaSyms.has(b.symbol));
+  let html = '';
+
+  if (inAlpha.length) {
+    html += `
+      <div class="bm-sec-title" style="margin-bottom:10px">
+        ◆ In Alpha Signals (${inAlpha.length})
+      </div>
+      <div class="bm-grid">${inAlpha.map(b => card(b, true)).join('')}</div>`;
+  }
+
+  if (others.length) {
+    html += `
+      <div class="bm-sec-title" style="margin-bottom:10px;${inAlpha.length ? 'margin-top:24px' : ''}">
+        Watchlist (${others.length})
+      </div>
+      <div class="bm-grid">${others.map(b => card(b, false)).join('')}</div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+function card(b, inAlpha) {
+  const saved   = b.bookmarked_at
+    ? new Date(b.bookmarked_at).toLocaleDateString('en-IN', { day:'2-digit', month:'short' })
+    : '';
+  const conv    = alphaConvictions[b.symbol] || '';
+  const convCls = { 'STRONG BUY':'conv-sb', 'BUY':'conv-b', 'WATCH':'conv-w' }[conv] || '';
+  // Use the stored symbol as-is for the stock page link
+  const stockUrl = `/pages/stock.html?symbol=${encodeURIComponent(b.symbol)}&name=${encodeURIComponent(b.name)}&sector=${encodeURIComponent(b.sector || '')}`;
+
+  return `<div class="bm-card ${inAlpha ? 'in-alpha' : ''}">
+    <button class="bm-remove" onclick="removeItem('${safeSym(b.symbol)}')" title="Remove">✕</button>
+    <div class="bm-card-sym">${b.symbol.replace('.NS','').replace('^','')}</div>
+    <div class="bm-card-name">${b.name}</div>
+    <span class="bm-card-sec">${b.sector || '—'}</span>
+    ${inAlpha && conv ? `<span class="conv ${convCls}" style="margin-top:5px;display:inline-block">${conv}</span>` : ''}
+    ${inAlpha ? '<div class="alpha-pip">◆ ALPHA SIGNAL</div>' : ''}
+    <div class="bm-card-price">${fmtPrice(b.price, b.sector)}</div>
+    ${saved ? `<div style="font-family:var(--mono);font-size:8px;color:var(--c-muted);margin-top:3px">Saved ${saved}</div>` : ''}
+    <div class="bm-card-actions">
+      <a href="${stockUrl}" class="bm-card-btn">ANALYSIS →</a>
+    </div>
+  </div>`;
+}
+
+async function removeItem(encodedSym) {
+  const sym = decodeURIComponent(encodedSym);
+  const res = await apiDel('/bookmarks/' + encodedSym);
+  if (!res?.ok) { toast('Could not remove ' + sym, 'r'); return; }
+  toast(sym.replace('.NS','') + ' removed', 'a');
+  bookmarks = bookmarks.filter(b => b.symbol !== sym);
+  await refreshBmCount();
+  document.getElementById('bmSub').textContent =
+    `Your saved stocks · ${bookmarks.length} saved`;
+  render();
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+[build]
+  publish = "public"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "nft"
+  included_files = ["netlify/functions/**"]
+
+# SPA fallback — Netlify serves real files first automatically,
+# only falls back to index.html for paths with no matching file
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

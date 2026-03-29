@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>AlphaScope</title>
+<link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <div class="auth-brand-name"><div class="brand-dot"></div>ALPHASCOPE</div>
+      <button class="theme-btn" onclick="Theme.toggle()" style="font-family:var(--mono);font-size:11px;color:var(--c-muted)">◑</button>
+    </div>
+    <div class="auth-tabs">
+      <div class="auth-tab active" onclick="switchTab('login',this)">SIGN IN</div>
+      <div class="auth-tab" onclick="switchTab('register',this)">REGISTER</div>
+    </div>
+    <div class="auth-panel active" id="panel-login">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--c-muted);letter-spacing:.04em;padding-bottom:4px;border-bottom:1px solid var(--c-line)">NSE dual-signal intelligence terminal</div>
+      <div class="form-grp">
+        <label class="form-lbl">Username</label>
+        <input class="form-input" id="l-user" type="text" placeholder="your_username" autocomplete="username">
+      </div>
+      <div class="form-grp">
+        <label class="form-lbl">Password</label>
+        <input class="form-input" id="l-pass" type="password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <div class="form-err" id="l-err"></div>
+      <button class="form-btn" id="l-btn" onclick="doLogin()">SIGN IN</button>
+      <div class="auth-switch">No account? <a onclick="switchTab('register',document.querySelectorAll('.auth-tab')[1])">Register</a></div>
+    </div>
+    <div class="auth-panel" id="panel-register">
+      <div style="font-family:var(--mono);font-size:10px;color:var(--c-muted);letter-spacing:.04em;padding-bottom:4px;border-bottom:1px solid var(--c-line)">Create your account</div>
+      <div class="form-grp">
+        <label class="form-lbl">Username</label>
+        <input class="form-input" id="r-user" type="text" placeholder="your_username" autocomplete="username">
+      </div>
+      <div class="form-grp">
+        <label class="form-lbl">Email</label>
+        <input class="form-input" id="r-email" type="email" placeholder="you@example.com">
+      </div>
+      <div class="form-grp">
+        <label class="form-lbl">Password</label>
+        <input class="form-input" id="r-pass" type="password" placeholder="Min. 6 characters" autocomplete="new-password">
+      </div>
+      <div class="form-err" id="r-err"></div>
+      <button class="form-btn" id="r-btn" onclick="doRegister()">CREATE ACCOUNT</button>
+      <div class="auth-switch">Have an account? <a onclick="switchTab('login',document.querySelectorAll('.auth-tab')[0])">Sign in</a></div>
+    </div>
+    <div class="auth-footer-bar">
+      <span>ET AI Hackathon 2026 · PS6</span>
+      <span>Groq · Yahoo Finance · NSE</span>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="/js/app.js"></script>
+<script>
+if (Auth.isLoggedIn()) window.location.href = '/pages/dashboard.html';
+function switchTab(name, el) {
+  document.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.auth-panel').forEach(p=>p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panel-'+name).classList.add('active');
+}
+async function doLogin() {
+  const u=document.getElementById('l-user').value.trim(), p=document.getElementById('l-pass').value;
+  const e=document.getElementById('l-err'), b=document.getElementById('l-btn');
+  e.classList.remove('show');
+  if (!u||!p) { e.textContent='All fields required'; e.classList.add('show'); return; }
+  b.textContent='...'; b.disabled=true;
+  const res=await fetch('/.netlify/functions/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});
+  const data=await res.json();
+  if (!res.ok) { e.textContent=data.error||'Login failed'; e.classList.add('show'); b.textContent='SIGN IN'; b.disabled=false; return; }
+  Auth.setSession(data.token,data.user);
+  window.location.href='/pages/dashboard.html';
+}
+async function doRegister() {
+  const u=document.getElementById('r-user').value.trim(), em=document.getElementById('r-email').value.trim(), p=document.getElementById('r-pass').value;
+  const e=document.getElementById('r-err'), b=document.getElementById('r-btn');
+  e.classList.remove('show');
+  if (!u||!em||!p) { e.textContent='All fields required'; e.classList.add('show'); return; }
+  b.textContent='...'; b.disabled=true;
+  const res=await fetch('/.netlify/functions/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,email:em,password:p})});
+  const data=await res.json();
+  if (!res.ok) { e.textContent=data.error||'Registration failed'; e.classList.add('show'); b.textContent='CREATE ACCOUNT'; b.disabled=false; return; }
+  Auth.setSession(data.token,data.user);
+  window.location.href='/pages/dashboard.html';
+}
+document.addEventListener('keydown', e => { if (e.key==='Enter') { if (document.getElementById('panel-login').classList.contains('active')) doLogin(); else doRegister(); } });
+</script>
+</body>
+</html>
