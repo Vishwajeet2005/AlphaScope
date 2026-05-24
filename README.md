@@ -6,7 +6,11 @@ Built for the ET AI Hackathon 2026 (PS6 — AI for the Indian Investor).
 
 Prototype deployed successfully using netlify 
 
-The deployment link - https://alphascope.netlify.app/
+**Description:** NSE stock intelligence terminal — dual-signal alpha detection with AI-powered analysis
+
+**Website:** https://alphascope.netlify.app/
+
+**Topics:** fintech, nse, india, stock-market, ai, netlify, javascript
 
 ---
 
