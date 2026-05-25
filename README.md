@@ -1,5 +1,7 @@
 # AlphaScope
 
+![Status](https://img.shields.io/badge/Status-Live-success) ![Hackathon](https://img.shields.io/badge/ET%20AI%20Hackathon%202026-PS6-blue) ![Stack](https://img.shields.io/badge/Stack-HTML%20%7C%20Node.js%20%7C%20Groq-informational) ![Deploy](https://img.shields.io/badge/Deployed-Netlify-00C7B7)
+
 **NSE stock intelligence terminal — dual-signal alpha detection with live prices, AI-powered analysis, and real-time market data.**
 
 Built for the ET AI Hackathon 2026 (PS6 — AI for the Indian Investor). 
