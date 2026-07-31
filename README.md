@@ -17,7 +17,7 @@
 
 ---
 
-## 📌 Overview
+## Overview
 
 **AlphaScope** is a modern, web-based terminal built for the Indian investor. Originally developed for the **ET AI Hackathon 2026 (PS6 — AI for the Indian Investor)**, it cross-validates two independent signal sources to surface high-conviction trade setups on NSE stocks.
 
@@ -25,7 +25,7 @@ By combining traditional quantitative analysis with large language models, Alpha
 
 ---
 
-## 🚀 Core Mechanics
+## Core Mechanics
 
 AlphaScope utilizes a dual-agent architecture to identify high-probability setups:
 
@@ -36,7 +36,7 @@ AlphaScope utilizes a dual-agent architecture to identify high-probability setup
 
 ---
 
-## ✨ Key Features
+## Key Features
 
 - **Live NSE Prices:** Real-time data pulled from Yahoo Finance on every request—no stale quotes.
 - **Global Macro Tracking:** Live tickers for Gold, Silver, Crude Oil, USD/INR, Bitcoin, and India VIX.
@@ -48,7 +48,7 @@ AlphaScope utilizes a dual-agent architecture to identify high-probability setup
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 | Component | Technology |
 |---|---|
@@ -61,7 +61,7 @@ AlphaScope utilizes a dual-agent architecture to identify high-probability setup
 
 ---
 
-## 📁 Project Architecture
+## Project Architecture
 
 ```text
 alphascope/
@@ -91,7 +91,7 @@ alphascope/
 
 ---
 
-## 🚦 Getting Started
+## Getting Started
 
 ### Prerequisites
 - [Node.js](https://nodejs.org/) (v18 or higher recommended)
@@ -123,7 +123,7 @@ alphascope/
 
 ---
 
-## 🌍 Impact Model
+## Impact Model
 
 India has over 14 crore Demat accounts, yet many retail investors lack access to professional-grade tools, relying heavily on informal tips. AlphaScope bridges this gap by automatically surfacing 3–8 confirmed dual-signal setups daily from liquid NSE stocks. 
 
